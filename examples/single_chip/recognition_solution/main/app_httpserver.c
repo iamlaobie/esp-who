@@ -25,6 +25,7 @@
 #include "image_util.h"
 #include "fb_gfx.h"
 #include "app_main.h"
+#include "fr_forward.h"
 
 static const char *TAG = "app_httpserver";
 
@@ -48,6 +49,7 @@ static const char* _STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %
 face_id_list st_face_list = {0};
 
 dl_matrix3du_t *aligned_face = NULL;
+// httpd_req_t *request = NULL;
 
 static void oneshot_timer_callback(void* arg);
 
@@ -134,14 +136,26 @@ static void draw_face_boxes(dl_matrix3du_t *image_matrix, box_array_t *boxes){
     }
 }
 
-esp_err_t facenet_stream_handler(httpd_req_t *req)
+// 通过左眼与右眼的位置，判断头像是否正
+bool is_horizon(box_array_t *net_boxes) {
+    float y = net_boxes->landmark[0].landmark_p[LEFT_EYE_Y] - net_boxes->landmark[0].landmark_p[RIGHT_EYE_Y];
+    float x = net_boxes->landmark[0].landmark_p[LEFT_EYE_X] - net_boxes->landmark[0].landmark_p[RIGHT_EYE_X];
+    if (x < 0) x = -x;
+    if (y < 0) y = -y;
+    ESP_LOGI(TAG, "left eye and right eye y distance: %f, %f, %f", x, y, x / y);
+    return (x / y) > 15;
+} 
+
+esp_err_t facenet_stream_loop(httpd_req_t *request)
 {
     esp_err_t res = ESP_OK;
+    /*
     if (g_state != WAIT_FOR_CONNECT)
     {
         res = httpd_resp_send_404(req);
         return res;
     }
+    */
     g_state = START_DETECT;
 
     camera_fb_t * fb = NULL;
@@ -157,6 +171,7 @@ esp_err_t facenet_stream_handler(httpd_req_t *req)
     int64_t fr_face = 0;
     int64_t fr_recognize = 0;
     int64_t fr_encode = 0;
+    dl_matrix3d_t *real_face_id = NULL;
 
     mtmn_config_t mtmn_config = mtmn_init_config();
 
@@ -165,9 +180,11 @@ esp_err_t facenet_stream_handler(httpd_req_t *req)
         last_frame = esp_timer_get_time();
     }
 
-    res = httpd_resp_set_type(req, _STREAM_CONTENT_TYPE);
-    if(res != ESP_OK){
-        return res;
+    if (request) {
+        res = httpd_resp_set_type(request, _STREAM_CONTENT_TYPE);
+        if(res != ESP_OK){
+            return res;
+        }
     }
 
     ESP_LOGI(TAG, "Get count %d\n", st_face_list.count);
@@ -280,13 +297,10 @@ esp_err_t facenet_stream_handler(httpd_req_t *req)
                         rgb_print(image_matrix, FACE_COLOR_RED, "\nWHO?");
                     }
                 }
+                real_face_id = get_face_id(aligned_face);
             }
-
+            
             draw_face_boxes(image_matrix, net_boxes);
-            free(net_boxes->score);
-            free(net_boxes->box);
-            free(net_boxes->landmark);
-            free(net_boxes);
 
             fr_recognize = esp_timer_get_time();
             if(!fmt2jpg(image_matrix->item, fb->width*fb->height*3, fb->width, fb->height, PIXFORMAT_RGB888, 90, &_jpg_buf, &_jpg_buf_len))
@@ -305,16 +319,24 @@ esp_err_t facenet_stream_handler(httpd_req_t *req)
         dl_matrix3du_free(image_matrix);
         fr_encode = esp_timer_get_time();
 
-
-        if(res == ESP_OK){
+        if(request){
             size_t hlen = snprintf((char *)part_buf, 64, _STREAM_PART, _jpg_buf_len);
-            res = httpd_resp_send_chunk(req, (const char *)part_buf, hlen);
+            res = httpd_resp_send_chunk(request, (const char *)part_buf, hlen);
+            if(res == ESP_OK){
+                res = httpd_resp_send_chunk(request, (const char *)_jpg_buf, _jpg_buf_len);
+            }
+            if(res == ESP_OK){
+                res = httpd_resp_send_chunk(request, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
+            }
         }
-        if(res == ESP_OK){
-            res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len);
-        }
-        if(res == ESP_OK){
-            res = httpd_resp_send_chunk(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
+
+        // 双眼没有水平的不往服务器发
+        if (real_face_id) {
+            post_image_feature((char *)_jpg_buf, _jpg_buf_len, real_face_id, net_boxes->box[0].box_p, net_boxes->landmark[0].landmark_p);
+            dl_matrix3d_free(real_face_id);
+            real_face_id = NULL;
+        } else {
+            post_image((char *)_jpg_buf, _jpg_buf_len);
         }
         if(fb){
             esp_camera_fb_return(fb);
@@ -328,6 +350,12 @@ esp_err_t facenet_stream_handler(httpd_req_t *req)
             break;
         }
         int64_t fr_end = esp_timer_get_time();
+        if (net_boxes) {
+            free(net_boxes->score);
+            free(net_boxes->box);
+            free(net_boxes->landmark);
+            free(net_boxes);
+        }
 
         int64_t ready_time = (fr_ready - fr_start)/1000;
         int64_t face_time = (fr_face - fr_ready)/1000;
@@ -349,10 +377,23 @@ esp_err_t facenet_stream_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+/*
+esp_err_t request_handler(httpd_req_t *req) {
+    esp_err_t res = httpd_resp_set_type(req, _STREAM_CONTENT_TYPE);
+    if (res != ESP_OK) {
+        ESP_LOGI(TAG, "request failure");
+    } else {
+        request = req;
+    }
+    return ESP_OK;
+}
+*/
+
 httpd_uri_t _face_stream_handler = {
     .uri       = "/face_stream",
     .method    = HTTP_GET,
-    .handler   = facenet_stream_handler,
+    // .handler   = request_handler,
+    .handler   = facenet_stream_loop,
     .user_ctx  = NULL
 };
 

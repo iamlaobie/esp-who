@@ -45,7 +45,7 @@
 
 #elif CONFIG_CAMERA_MODEL_ESP_EYE
 #define PWDN_GPIO_NUM    -1
-#define RESET_GPIO_NUM   -1
+#define RESET_GPIO_NUM   32
 #define XCLK_GPIO_NUM    4
 #define SIOD_GPIO_NUM    18
 #define SIOC_GPIO_NUM    23

@@ -35,6 +35,7 @@ extern "C" {
 #include "fr_flash.h"
 
 void app_httpserver_init ();
+esp_err_t facenet_stream_loop();
 
 #if __cplusplus
 }

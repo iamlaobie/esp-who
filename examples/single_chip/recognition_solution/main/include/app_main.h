@@ -2,6 +2,7 @@
 #include "app_httpserver.h"
 #include "app_wifi.h"
 #include "app_speech_srcif.h"
+#include "send.h"
 
 #define VERSION "0.9.0"
 

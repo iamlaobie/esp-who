@@ -28,6 +28,7 @@
 #include "esp_event_loop.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
+#include "nvs.h"
 #include "sdkconfig.h"
 
 #include "lwip/err.h"
@@ -36,9 +37,11 @@
 
 static const char *TAG = "app_wifi";
 
-#define EXAMPLE_ESP_WIFI_MODE_AP   1 //TRUE:AP FALSE:STA
+// #define EXAMPLE_ESP_WIFI_MODE_AP   1 //TRUE:AP FALSE:STA
 #define EXAMPLE_ESP_WIFI_SSID      CONFIG_ESP_WIFI_SSID
 #define EXAMPLE_ESP_WIFI_PASS      CONFIG_ESP_WIFI_PASSWORD
+// #define EXAMPLE_ESP_WIFI_SSID      "CMCC-xD2i"
+// #define EXAMPLE_ESP_WIFI_PASS      "f57th6s7"
 #define EXAMPLE_MAX_STA_CONN       CONFIG_MAX_STA_CONN
 #define EXAMPLE_IP_ADDR            CONFIG_SERVER_IP
 
@@ -72,7 +75,6 @@ static esp_err_t event_handler(void *ctx, system_event_t *event)
     return ESP_OK;
 }/*}}}*/
 
-#if EXAMPLE_ESP_WIFI_MODE_AP
 static void wifi_init_softap()
 {
     tcpip_adapter_init();
@@ -131,8 +133,6 @@ static void wifi_init_softap()
 
 }
 
-#else
-
 static void wifi_init_sta() 
 {
     tcpip_adapter_init();
@@ -156,9 +156,18 @@ static void wifi_init_sta()
     char buf[80];
     sprintf(buf, "SSID:%s", wifi_config.sta.ssid);
     sprintf(buf, "PASSWORD:%s", wifi_config.sta.password);
-
 }
-#endif
+
+bool is_initialed() {
+    esp_err_t err = nvs_flash_init();
+    nvs_handle my_handle;
+    err = nvs_open("storage", NVS_READWRITE, &my_handle);
+    char *ssid = malloc(15);
+    err = nvs_get_i32(my_handle, "restart_counter", &ssid);
+    if (err == ESP_OK) {
+        return true;
+    }
+}
 
 void app_wifi_init ()
 {

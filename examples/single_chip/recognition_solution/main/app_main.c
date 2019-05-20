@@ -23,6 +23,7 @@
 #include "app_main.h"
 #include "esp_partition.h"
 
+
 void gpio_led_init()
 {
     gpio_config_t gpio_conf;
@@ -96,15 +97,30 @@ void app_main()
 
     xTaskCreatePinnedToCore(&led_task, "blink_task", configMINIMAL_STACK_SIZE, NULL, 5, NULL, 0);
 
-    g_state = WAIT_FOR_WAKEUP;
+    // g_state = WAIT_FOR_WAKEUP;
+    g_state = WAIT_FOR_CONNECT;
 
-    vTaskDelay(30 / portTICK_PERIOD_MS);
+    vTaskDelay(3000 / portTICK_PERIOD_MS);
+    /*
     ESP_LOGI("esp-eye", "Please say 'Hi LeXin' to the board");
     ESP_LOGI("esp-eye", "Version "VERSION);
     while (g_state == WAIT_FOR_WAKEUP)
         vTaskDelay(1000 / portTICK_PERIOD_MS);
+    */
     app_wifi_init();
     app_camera_init();
     app_httpserver_init();
+    vTaskDelay(2000 / portTICK_PERIOD_MS);
+    facenet_stream_loop(NULL);
+
+    
     ESP_LOGI("esp-eye", "Version "VERSION" success");
+    
+
+    /*
+    while(1) {
+       post("abcd=1"); 
+       vTaskDelay(3000 / portTICK_PERIOD_MS);
+    }
+    */
 }
